@@ -115,3 +115,4 @@ If running with a Supabase PostgreSQL instance:
 3. Seed command intentionally inserts no demo tasks: `npm run prisma:seed`
 
 The app now uses Supabase Auth (signup/login) and only shows tasks created by the authenticated user.
+# Momentum
