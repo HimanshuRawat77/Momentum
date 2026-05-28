@@ -5,14 +5,16 @@ import { CheckSquare, Command, FolderKanban, Layers, Moon, Sparkles, Sun, Target
 import { api, setApiAccessToken } from './lib/api';
 import type { DashboardStats as StatsType, FetchTasksParams, Task } from './lib/api';
 import AuthScreen from './components/AuthScreen';
+import BrandLogo from './components/BrandLogo';
 import CommandPalette from './components/CommandPalette';
 import ConfirmationModal from './components/ConfirmationModal';
 import DashboardStats from './components/DashboardStats';
 import EnergyGrouping from './components/EnergyGrouping';
-import Heatmap from './components/Heatmap';
 import TaskForm from './components/TaskForm';
 import TaskList from './components/TaskList';
+import TodayTaskStats from './components/TodayTaskStats';
 import TodayFocus from './components/TodayFocus';
+import { AnimatedCardStatusList, type Card as StatusCard } from './components/ui/card-status-list';
 import { Button } from './components/ui/Button';
 import { Dialog, DialogDescription, DialogHeader, DialogTitle } from './components/ui/Dialog';
 import { Input } from './components/ui/Input';
@@ -69,6 +71,18 @@ export const App: React.FC = () => {
     : 'You have room to climb. Ship one high-impact task next.';
 
   const activeBacklog = useMemo(() => tasks.filter((t) => t.status !== 'COMPLETED'), [tasks]);
+  const statusCards = useMemo<StatusCard[]>(() => {
+    return tasks.slice(0, 5).map((task) => ({
+      id: task.id,
+      title: task.title,
+      status:
+        task.status === 'COMPLETED'
+          ? 'completed'
+          : task.status === 'IN_PROGRESS'
+            ? 'syncing'
+            : 'updates-found'
+    }));
+  }, [tasks]);
 
   const loadStats = async () => {
     setIsLoadingStats(true);
@@ -97,10 +111,17 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const loadAuth = async () => {
-      const { data } = await supabase.auth.getSession();
-      setSession(data.session ?? null);
-      setApiAccessToken(data.session?.access_token ?? null);
-      setIsAuthReady(true);
+      try {
+        const { data } = await supabase.auth.getSession();
+        setSession(data.session ?? null);
+        setApiAccessToken(data.session?.access_token ?? null);
+      } catch (error) {
+        console.error('Failed to initialize auth session:', error);
+        setSession(null);
+        setApiAccessToken(null);
+      } finally {
+        setIsAuthReady(true);
+      }
     };
 
     loadAuth();
@@ -303,13 +324,7 @@ export const App: React.FC = () => {
             className="group flex items-center gap-2"
             aria-label="Go to focus dashboard"
           >
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-glow-indigo transition-transform group-hover:scale-105 dark:bg-indigo-500">
-              <Sparkles className="h-5 w-5" />
-            </div>
-            <div className="hidden sm:block">
-              <p className="text-sm font-semibold tracking-tight">Momentum</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Productivity OS</p>
-            </div>
+            <BrandLogo className="scale-[0.58] origin-left -my-4" showTagline />
           </button>
 
           <nav className="flex items-center rounded-xl border border-slate-200/50 bg-slate-100/85 p-1 dark:border-slate-800 dark:bg-slate-900/70" aria-label="Primary navigation">
@@ -407,7 +422,7 @@ export const App: React.FC = () => {
               />
 
               <DashboardStats stats={stats} isLoading={isLoadingStats} />
-              <Heatmap data={stats?.heatmapData || []} isLoading={isLoadingStats} />
+              <TodayTaskStats tasks={tasks} isLoading={isLoadingTasks} />
             </motion.section>
           ) : (
             <motion.section
@@ -450,6 +465,17 @@ export const App: React.FC = () => {
                   </button>
                 </div>
               </div>
+
+              <AnimatedCardStatusList
+                title="Task Status Pulse"
+                cards={statusCards}
+                onSynchronize={(cardId) => {
+                  void handleStartTask(cardId);
+                }}
+                onAddCard={handleNewTaskClick}
+                onBack={() => setActiveTab('focus')}
+                className="max-w-3xl px-0"
+              />
 
               {backlogSubTab === 'list' ? (
                 <TaskList

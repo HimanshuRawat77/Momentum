@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import BrandLogo from './BrandLogo';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { Input } from './ui/Input';
@@ -15,16 +15,28 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
+
+  useEffect(() => {
+    if (cooldownSeconds <= 0) return;
+    const timer = setInterval(() => {
+      setCooldownSeconds((prev) => Math.max(prev - 1, 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldownSeconds]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (isLoading || cooldownSeconds > 0) return;
     setError('');
+    setInfo('');
     setIsLoading(true);
 
     try {
       if (mode === 'signup') {
-        const { error: signUpError } = await supabase.auth.signUp({
+        const { data, error: signUpError } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -37,6 +49,14 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
         if (signUpError) {
           throw signUpError;
         }
+
+        // Keep signup simple and explicit for users.
+        if (data.session) {
+          onAuthenticated();
+        } else {
+          setInfo('Account created. If email confirmation is enabled, please verify your inbox, then sign in.');
+          setMode('login');
+        }
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email,
@@ -45,11 +65,24 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
         if (signInError) {
           throw signInError;
         }
+        onAuthenticated();
       }
-
-      onAuthenticated();
     } catch (err: any) {
-      setError(err?.message || 'Authentication failed');
+      const message = String(err?.message || 'Authentication failed');
+      const isRateLimited = message.toLowerCase().includes('too many requests') || String(err?.status) === '429';
+      const isInvalidCreds = message.toLowerCase().includes('invalid login credentials');
+      const isEmailNotConfirmed = message.toLowerCase().includes('email not confirmed');
+
+      if (isRateLimited) {
+        setCooldownSeconds(30);
+        setError('Too many attempts. Please wait 30 seconds, then try again.');
+      } else if (isEmailNotConfirmed) {
+        setError('Email not confirmed. Please verify your inbox, then sign in.');
+      } else if (isInvalidCreds) {
+        setError('Invalid email/password. If you have not created an account yet, use Sign Up first.');
+      } else {
+        setError(message);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -59,10 +92,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
     <div className="min-h-screen bg-slate-50 dark:bg-[#030712] flex items-center justify-center p-4">
       <Card className="w-full max-w-md p-8 space-y-5">
         <div className="space-y-2 text-center">
-          <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white">
-            <Sparkles className="h-5 w-5" />
+          <div className="flex justify-center">
+            <BrandLogo className="scale-[0.72] origin-center -my-3" />
           </div>
-          <h1 className="text-2xl font-semibold">Momentum</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
             {mode === 'login' ? 'Sign in to your workspace' : 'Create your workspace account'}
           </p>
@@ -98,9 +130,16 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthenticated }) => {
           />
 
           {error && <p className="text-sm text-rose-500">{error}</p>}
+          {info && <p className="text-sm text-emerald-600 dark:text-emerald-400">{info}</p>}
 
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? 'Please wait...' : mode === 'login' ? 'Sign In' : 'Create Account'}
+          <Button type="submit" className="w-full" disabled={isLoading || cooldownSeconds > 0}>
+            {isLoading
+              ? 'Please wait...'
+              : cooldownSeconds > 0
+                ? `Try again in ${cooldownSeconds}s`
+                : mode === 'login'
+                  ? 'Sign In'
+                  : 'Create Account'}
           </Button>
         </form>
 
